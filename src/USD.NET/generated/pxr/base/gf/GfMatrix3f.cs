@@ -128,6 +128,12 @@ public class GfMatrix3f : global::System.IDisposable {
     return ret;
   }
 
+  public SWIGTYPE_p_float data() {
+    global::System.IntPtr cPtr = UsdCsPINVOKE.GfMatrix3f_data__SWIG_0(swigCPtr);
+    SWIGTYPE_p_float ret = (cPtr == global::System.IntPtr.Zero) ? null : new SWIGTYPE_p_float(cPtr, false);
+    return ret;
+  }
+
   public GfMatrix3f GetTranspose() {
     GfMatrix3f ret = new GfMatrix3f(UsdCsPINVOKE.GfMatrix3f_GetTranspose(swigCPtr), true);
     return ret;
@@ -239,10 +245,10 @@ public class GfMatrix3f : global::System.IDisposable {
   }
 
     public static bool operator==(GfMatrix3f lhs, GfMatrix3f rhs){
-	    // The Swig binding glue will re-enter this operator comparing to null, so 
-	    // that case must be handled explicitly to avoid an infinite loop. This is still
-	    // not great, since it crosses the C#/C++ barrier twice. A better approache might
-	    // be to return a simple value from C++ that can be compared in C#.
+      // The Swig binding glue will re-enter this operator comparing to null, so 
+      // that case must be handled explicitly to avoid an infinite loop. This is still
+      // not great, since it crosses the C#/C++ barrier twice. A better approache might
+      // be to return a simple value from C++ that can be compared in C#.
       bool lnull = lhs as object == null;
       bool rnull = rhs as object == null;
       return (lnull == rnull) && ((lnull && rnull) || GfMatrix3f.Equals(lhs, rhs));
@@ -252,9 +258,9 @@ public class GfMatrix3f : global::System.IDisposable {
         return !(lhs == rhs);
     }
 
-	  override public bool Equals(object rhs) {
-		  return GfMatrix3f.Equals(this, rhs as GfMatrix3f);
-	  }
+    override public bool Equals(object rhs) {
+      return GfMatrix3f.Equals(this, rhs as GfMatrix3f);
+    }
   
   public override string ToString() {
     string ret = UsdCsPINVOKE.GfMatrix3f_ToString(swigCPtr);

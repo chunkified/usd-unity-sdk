@@ -24,6 +24,21 @@ namespace USD.NET {
   public class Scene {
 
     /// <summary>
+    /// Dictates how data is written to the scene.
+    /// </summary>
+    public enum WriteModes {
+      /// <summary>
+      /// Every call to Write() also ensures the Prim is defined.
+      /// </summary>
+      Define,
+
+      /// <summary>
+      /// Calls to Write() will not define the Prim.
+      /// </summary>
+      Over,
+    }
+
+    /// <summary>
     /// Indicates how to interpolate values when requesting a value which lies between two key
     /// frames.
     /// </summary>
@@ -49,12 +64,6 @@ namespace USD.NET {
     }
 
     /// <summary>
-    /// Declares the file format version of the serializer, written with all serialized data on the
-    /// UsdPrim of the serialized object as customData metadata.
-    /// </summary>
-    public readonly GfVec2i kVersion = new GfVec2i(1, 0);
-
-    /// <summary>
     /// Gets the underlying UsdStage for this scene, if available.
     /// </summary>
     /// <remarks>
@@ -62,6 +71,36 @@ namespace USD.NET {
     /// for common use.
     /// </remarks>
     public UsdStage Stage { get { return m_stage; } }
+
+    /// <summary>
+    /// When non-null, limits the members which the scene will read during serialization.
+    /// </summary>
+    public AccessMask AccessMask { get; set; }
+
+    /// <summary>
+    /// When true, populates the AccessMask with with values which vary over time.
+    /// </summary>
+    /// <remarks>
+    /// Usage: Set a valid AccessMaks, set the value to true, read all prims, set to false.
+    /// Subsequent reads will only include prims from this set which vary over time.
+    /// </remarks>
+    public bool IsPopulatingAccessMask { get; set; }
+
+    /// <summary>
+    /// Returns the root layer identifier upon which this scene is operating (the EditTarget
+    /// identifier). Note that for in-memory layers, this may not be a path on disk.
+    /// </summary>
+    public string FilePath {
+      get {
+        return m_stage.GetEditTarget().GetLayer().GetIdentifier();
+      }
+    }
+
+    /// <summary>
+    /// Dicatates how calls to Write() are handled. When set to Define (the default), every write
+    /// will ensure the prim is also defined.
+    /// </summary>
+    public WriteModes WriteMode { get; set; }
 
     /// <summary>
     /// The time at which key frames should be read and written.
@@ -154,27 +193,23 @@ namespace USD.NET {
     /// <summary>
     /// A list of all Prim paths present in the scene.
     /// </summary>
-    public PathCollection AllPaths {
+    public SdfPath[] AllPaths {
       get {
-        return new PathCollection(Stage.GetAllPaths());
+        return VectorToArray(Stage.GetAllPaths());
       }
     }
 
-    /// <summary>
-    /// A list of all mesh paths in the scene.
-    /// </summary>
-    public PathCollection AllMeshes {
+    [Obsolete("Use Find<MeshSample>() instead. This API will be removed in a future release.")]
+    public SdfPath[] AllMeshes {
       get {
-        return new PathCollection(Stage.GetAllPathsByType("Mesh"));
+        return VectorToArray(Stage.GetAllPathsByType("Mesh", SdfPath.AbsoluteRootPath()));
       }
     }
 
-    /// <summary>
-    /// A list of all Xform paths in the scene.
-    /// </summary>
-    public PathCollection AllXforms {
+    [Obsolete("Use Find<XformableSample>() instead. This API will be removed in a future release.")]
+    public SdfPath[] AllXforms {
       get {
-        return new PathCollection(Stage.GetAllPathsByType("Xform"));
+        return VectorToArray(Stage.GetAllPathsByType("Xform", SdfPath.AbsoluteRootPath()));
       }
     }
 
@@ -218,6 +253,216 @@ namespace USD.NET {
     }
 
     /// <summary>
+    /// Constructs a scene from an existing stage.
+    /// </summary>
+    public static Scene Open(UsdStage stage) {
+      if (stage == null) {
+        throw new NullReferenceException("Null stage");
+      }
+      return new Scene(stage);
+    }
+
+    /// <summary>
+    /// Gets the UsdPrim at the given path, retuns null if the UsdPrim is invalid.
+    /// Therefore, if the return value is not null, IsValid need not be checked.
+    /// </summary>
+    public UsdPrim GetPrimAtPath(string primPath) {
+      var p = Stage.GetPrimAtPath(new SdfPath(primPath));
+      if (p == null || !p.IsValid()) {
+        return null;
+      }
+      return p;
+    }
+
+    /// <summary>
+    /// Translates the given string into an SdfPath, returning a cached value if possible.
+    /// </summary>
+    public SdfPath GetSdfPath(string path) {
+      SdfPath sdfPath;
+      if (!m_pathMap.TryGetValue(path, out sdfPath)) {
+        sdfPath = new SdfPath(path);
+        m_pathMap[path] = sdfPath;
+      }
+      return sdfPath;
+    }
+
+    /// <summary>
+    /// Gets the UsdAttribute at the given path, retuns null if the UsdAttribute is invalid.
+    /// Therefore, if the return value is not null, IsValid need not be checked.
+    /// </summary>
+    public UsdAttribute GetAttributeAtPath(string attrPath) {
+      var attrSdfPath = new SdfPath(attrPath);
+      var p = Stage.GetPrimAtPath(attrSdfPath.GetPrimPath());
+      if (p == null || !p.IsValid()) {
+        return null;
+      }
+      var a = p.GetAttribute(attrSdfPath.GetNameToken());
+      if (a == null || !a.IsValid()) {
+        return null;
+      }
+      return a;
+    }
+
+    /// <summary>
+    /// Gets the UsdRelationship at the given path, retuns null if the UsdRelationship is invalid.
+    /// Therefore, if the return value is not null, IsValid need not be checked.
+    /// </summary>
+    public UsdRelationship GetRelationshipAtPath(string relPath) {
+      var relSdfPath = new SdfPath(relPath);
+      var p = Stage.GetPrimAtPath(relSdfPath.GetPrimPath());
+      if (p == null || !p.IsValid()) {
+        return null;
+      }
+      var rel = p.GetRelationship(relSdfPath.GetNameToken());
+      if (rel == null || !rel.IsValid()) {
+        return null;
+      }
+      return rel;
+    }
+
+    /// <summary>
+    /// Searches the USD Stage to find prims which either match the schema type name declared
+    /// for the given sample type, or those which derive from it.
+    /// </summary>
+    /// <typeparam name="T">
+    /// A type which inherits from SampleBase, adorned with a UsdSchemaAttribute.
+    /// </typeparam>
+    /// <returns>
+    /// An iterable collection of the paths discovered
+    /// </returns>
+    public SdfPath[] Find<T>() where T : SampleBase, new() {
+      return Find<T>(rootPath: SdfPath.AbsoluteRootPath());
+    }
+
+    /// <summary>
+    /// Searches the USD Stage to find prims which either match the schema type name declared
+    /// for the given sample type, or those which derive from it.
+    /// </summary>
+    /// <typeparam name="T">
+    /// A type which inherits from SampleBase, adorned with a UsdSchemaAttribute.
+    /// </typeparam>
+    /// <param name="rootPath">The root path at which to begin the search.</param>
+    /// <returns>
+    /// An iterable collection of the paths discovered
+    /// </returns>
+    public SdfPath[] Find<T>(string rootPath) where T : SampleBase, new() {
+      return Find<T>(new SdfPath(rootPath));
+    }
+
+    /// <summary>
+    /// Searches the USD Stage to find prims which either match the schema type name declared
+    /// for the given sample type, or those which derive from it.
+    /// </summary>
+    /// <typeparam name="T">
+    /// A type which inherits from SampleBase, adorned with a UsdSchemaAttribute.
+    /// </typeparam>
+    /// <param name="rootPath">The root path at which to begin the search.</param>
+    /// <returns>
+    /// An iterable collection of the paths discovered
+    /// </returns>
+    public SdfPath[] Find<T>(SdfPath rootPath) where T : SampleBase, new() {
+      var attrs = typeof(T).GetCustomAttributes(typeof(USD.NET.UsdSchemaAttribute), true);
+      if (attrs.Length == 0) {
+        throw new ApplicationException("Invalid type T, does not have UsdSchema attribute");
+      }
+      var schemaTypeName = ((UsdSchemaAttribute)attrs[0]).Name;
+      return VectorToArray(Stage.GetAllPathsByType(schemaTypeName, rootPath));
+    }
+
+    /// <summary>
+    /// Searches the USD Stage to find prims which either match the schema type name or those
+    /// which are derived from it.
+    /// </summary>
+    /// <param name="rootPath"></param>
+    /// <param name="usdSchemaTypeName">
+    /// The USD schema type name (e.g. UsdGeomMesh) or its alias (e.g. Mesh).
+    /// </param>
+    /// <returns>
+    /// Returns an iterable collection of UsdPrim paths.
+    /// </returns>
+    public SdfPath[] Find(string rootPath, string usdSchemaTypeName) {
+      return VectorToArray(Stage.GetAllPathsByType(usdSchemaTypeName, new SdfPath(rootPath)));
+    }
+
+
+    /// <summary>
+    /// Searches the USD Stage to find prims which either match the schema type name or those
+    /// which are derived from it.
+    /// </summary>
+    /// <typeparam name="T">
+    /// A type which inherits from SampleBase, adorned with a UsdSchemaAttribute.
+    /// </typeparam>
+    /// <returns>
+    /// Returns a collection which will read each prim found and return the requested SampleBase
+    /// object type.
+    /// </returns>
+    /// <remarks>Internally, this method reuses a single object while reading to minimize garbage
+    /// generated during iteration.</remarks>
+    public SampleCollection<T> ReadAll<T>() where T : SampleBase, new() {
+      return ReadAll<T>(rootPath: SdfPath.AbsoluteRootPath());
+    }
+
+    /// <summary>
+    /// Searches the USD Stage to find prims which either match the schema type name or those
+    /// which are derived from it.
+    /// </summary>
+    /// <typeparam name="T">
+    /// A type which inherits from SampleBase, adorned with a UsdSchemaAttribute.
+    /// </typeparam>
+    /// <param name="rootPath">The root path at which to begin the search.</param>
+    /// <returns>
+    /// Returns a collection which will read each prim found and return the requested SampleBase
+    /// object type.
+    /// </returns>
+    /// <remarks>Internally, this method reuses a single object while reading to minimize garbage
+    /// generated during iteration.</remarks>
+    public SampleCollection<T> ReadAll<T>(string rootPath) where T : SampleBase, new() {
+      return ReadAll<T>(new SdfPath(rootPath));
+    }
+
+    /// <summary>
+    /// Searches the USD Stage to find prims which either match the schema type name or those
+    /// which are derived from it.
+    /// </summary>
+    /// <typeparam name="T">
+    /// A type which inherits from SampleBase, adorned with a UsdSchemaAttribute.
+    /// </typeparam>
+    /// <param name="rootPath">The root path at which to begin the search.</param>
+    /// <returns>
+    /// Returns a collection which will read each prim found and return the requested SampleBase
+    /// object type.
+    /// </returns>
+    /// <remarks>Internally, this method reuses a single object while reading to minimize garbage
+    /// generated during iteration.</remarks>
+    public SampleCollection<T> ReadAll<T>(SdfPath rootPath) where T : SampleBase, new() {
+      var attrs = typeof(T).GetCustomAttributes(typeof(UsdSchemaAttribute), true);
+      if (attrs.Length == 0) {
+        throw new ApplicationException("Invalid type T, does not have UsdSchema attribute");
+      }
+      var schemaTypeName = ((UsdSchemaAttribute)attrs[0]).Name;
+      var vec = Stage.GetAllPathsByType(schemaTypeName, rootPath);
+      return new SampleCollection<T>(this, vec);
+    }
+
+    /// <summary>
+    /// At each path, reads the given sample type from t he USD Stage.
+    /// </summary>
+    /// <typeparam name="T">
+    /// A type which inherits from SampleBase, adorned with a UsdSchemaAttribute.
+    /// </typeparam>
+    /// <returns>
+    /// Returns a collection which will read each prim found and return the requested SampleBase
+    /// object type.
+    /// </returns>
+    public SampleCollection<T> ReadAll<T>(SdfPath[] paths) where T : SampleBase, new() {
+      var vec = new SdfPathVector();
+      foreach (SdfPath path in paths) {
+        vec.Add(path);
+      }
+      return new SampleCollection<T>(this, vec);
+    }
+
+    /// <summary>
     /// Release any open files and stop asynchronous execution.
     /// </summary>
     public void Close() {
@@ -256,14 +501,9 @@ namespace USD.NET {
       var tfAttrName = new pxr.TfToken(attribute);
       foreach(var child in Stage.GetAllPrims()) {
         if (child.GetPath() == SdfPath.AbsoluteRootPath()) {
-          Console.WriteLine("Was abs: {0}", child.GetPath());
+          continue;
+        }
 
-          continue;
-        }
-        if (child.GetTypeName() != "Mesh") {
-          continue;
-        }
-        Console.WriteLine(child.GetPath());
         if (!child.GetPath().HasPrefix(sdfRootPath)) {
           continue;
         }
@@ -282,6 +522,26 @@ namespace USD.NET {
     }
 
     /// <summary>
+    /// Adds the root layer of given Scene object as a sublayer of this Scene.
+    /// Note that this operation triggers recomposition and will invalidate UsdPrim instances.
+    /// </summary>
+    public void AddSubLayer(Scene over) {
+      SdfLayerHandle rootLayer = Stage.GetRootLayer();
+      var overLayer = over.Stage.GetRootLayer();
+      rootLayer.GetSubLayerPaths().push_back(overLayer.GetIdentifier());
+    }
+
+    /// <summary>
+    /// Set the layer to which this scene will author when writing values.
+    /// </summary>
+    public void SetEditTarget(Scene other) {
+      SdfLayerHandle rootLayer = other.Stage.GetRootLayer();
+      var editTarget = Stage.GetEditTargetForLocalLayer(rootLayer);
+      Stage.SetEditTarget(editTarget);
+      m_primMap.Clear();
+    }
+
+    /// <summary>
     /// Wait until all asynchronous writes complete.
     /// </summary>
     public void WaitForWrites() {
@@ -290,7 +550,7 @@ namespace USD.NET {
     }
 
     /// <summary>
-    /// Wait until all asynchronous writes complete.
+    /// Wait until all asynchronous reads complete.
     /// </summary>
     public void WaitForReads() {
       m_bgExe.Paused = false;
@@ -315,7 +575,7 @@ namespace USD.NET {
     }
 
     /// <summary>
-    /// Writes the current scene to the given file path, flattneing all references.
+    /// Writes the current scene to the given file path, flattening all references.
     /// </summary>
     /// 
     /// <remarks>
@@ -355,7 +615,8 @@ namespace USD.NET {
       var prim = GetUsdPrim(path);
       // Erase type.
       object o = memberValue;
-      m_usdIo.Deserialize(ref o, prim, TimeCode, fieldInfo);
+      bool? mayVary = null;
+      m_usdIo.Deserialize(ref o, prim, TimeCode, fieldInfo, null, ref mayVary);
 
       // Bring the value back, required for value types.
       memberValue = (T)o;
@@ -376,7 +637,8 @@ namespace USD.NET {
 
       // Erase type.
       object o = memberValue;
-      m_usdIo.Deserialize(ref o, prim, TimeCode, propInfo);
+      bool? mayVary = null;
+      m_usdIo.Deserialize(ref o, prim, TimeCode, propInfo, null, ref mayVary);
 
       // Bring the value back, required for value types.
       memberValue = (T)o;
@@ -389,12 +651,44 @@ namespace USD.NET {
       m_bgExe.AsyncRead(() => ReadInternal(path, sample, TimeCode));
     }
 
+    static readonly HashSet<System.Reflection.MemberInfo> m_empty = new HashSet<System.Reflection.MemberInfo>();
     private void ReadInternal<T>(SdfPath path,
                                  T sample,
                                  UsdTimeCode timeCode) where T: SampleBase {
       var prim = GetUsdPrim(path);
       if (!prim) { return; }
-      m_usdIo.Deserialize(sample, prim, timeCode);
+
+      var accessMap = AccessMask;
+      bool? mayVary = false;
+      HashSet<System.Reflection.MemberInfo> dynamicMembers = null;
+
+      if (accessMap != null) {
+        lock (m_stageLock) {
+          if (!accessMap.Included.TryGetValue(path, out dynamicMembers)
+              && IsPopulatingAccessMask) {
+            dynamicMembers = new HashSet<System.Reflection.MemberInfo>();
+            accessMap.Included.Add(path, dynamicMembers);
+          }
+        }
+
+        if (!IsPopulatingAccessMask) {
+          mayVary = null;
+          dynamicMembers = dynamicMembers ?? m_empty;
+        }
+      }
+
+      m_usdIo.Deserialize(sample, prim, timeCode, dynamicMembers, ref mayVary);
+
+      lock (m_stageLock) {
+        if (accessMap != null && mayVary != null) {
+          if (!mayVary.Value) {
+            if (accessMap.Included.ContainsKey(path)) {
+              accessMap.Included.Remove(path);
+            }
+          }
+        }
+      }
+
     }
 
     /// <summary>
@@ -427,11 +721,15 @@ namespace USD.NET {
         // underlying USD scene. The correct fix is to listen for change processing events and
         // clear the cache accordingly.
         if (!m_primMap.TryGetValue(path, out prim)) {
-          prim = m_stage.DefinePrim(path, new TfToken(Reflect.GetSchema(typeof(T))));
-          if (!prim) {
-            return;
+          if (WriteMode == WriteModes.Define) {
+            prim = m_stage.DefinePrim(path, new TfToken(Reflect.GetSchema(typeof(T))));
+          } else {
+            prim = m_stage.OverridePrim(path);
           }
-          prim.SetCustomDataByKey(new pxr.TfToken("kVersion"), kVersion);
+          if (prim == null || !prim) {
+            throw new Exception("Failed to "
+              + (WriteMode == WriteModes.Define ? "define" : "override") + " prim: " + path);
+          }
           m_primMap.Add(path, prim);
         }
       }
@@ -447,35 +745,44 @@ namespace USD.NET {
       return s;
     }
 
+    #region "Private API"
     // ----------------------------------------------------------------------------------------- //
     // Private API
     // ----------------------------------------------------------------------------------------- //
 
-    /// <summary>
-    /// Translates a string path to an SdfPath, caching the result to avoid churn.
-    /// </summary>
-    private pxr.SdfPath GetSdfPath(string path) {
-      if (m_pathMap.ContainsKey(path)) {
-        return m_pathMap[path];
-      }
-      var p = new pxr.SdfPath(path);
-      m_pathMap.Add(path, p);
-      return p;
+    /// <remarks>
+    /// Converts an std::vector to an array, but why?
+    /// Swig's current implementation of std::vector returns references to private memory, which
+    /// means any value obtained from it is extremely unsafe and will cause C++ style memory errors
+    /// if used after the vector is disposed. For safety, our API should never return a raw vector.
+    /// </remarks>
+    private SdfPath[] VectorToArray(SdfPathVector vec) {
+      var ret = new SdfPath[vec.Count];
+      vec.CopyTo(ret);
+      return ret;
     }
 
-    private pxr.SdfPath GetSdfPath(pxr.SdfPath path) {
+    private SdfPath GetSdfPath(pxr.SdfPath path) {
       throw new ApplicationException("TODO: don't allow implicit conversion path -> string");
     }
 
-    private pxr.UsdPrim GetUsdPrim(string path) {
+    /// <summary>
+    /// Returns the UsdPrim at the given path, returning null if the path is invalid.
+    /// </summary>
+    private UsdPrim GetUsdPrim(string path) {
       return GetUsdPrim(GetSdfPath(path));
     }
 
+    /// <summary>
+    /// Returns the UsdPrim at the given path, returning null if the path is invalid.
+    /// </summary>
     private pxr.UsdPrim GetUsdPrim(SdfPath path) {
       UsdPrim prim;
+      lock(m_stageLock) {
       if (!m_primMap.TryGetValue(path, out prim) || !prim.IsValid()) {
         prim = Stage.GetPrimAtPath(path);
-        m_primMap.Add(path, prim);
+        m_primMap[path] = prim;
+      }
       }
       return prim;
     }
@@ -502,6 +809,8 @@ namespace USD.NET {
       get;
       set;
     }
+
+#endregion
 
     private Dictionary<string, pxr.SdfPath> m_pathMap = new Dictionary<string, SdfPath>();
     private Dictionary<SdfPath, pxr.UsdPrim> m_primMap = new Dictionary<SdfPath, UsdPrim>();

@@ -10,12 +10,10 @@
 
 namespace pxr {
 
-public class UsdGeomModelAPI : global::System.IDisposable {
+public class UsdGeomModelAPI : UsdAPISchemaBase {
   private global::System.Runtime.InteropServices.HandleRef swigCPtr;
-  protected bool swigCMemOwn;
 
-  internal UsdGeomModelAPI(global::System.IntPtr cPtr, bool cMemoryOwn) {
-    swigCMemOwn = cMemoryOwn;
+  internal UsdGeomModelAPI(global::System.IntPtr cPtr, bool cMemoryOwn) : base(UsdCsPINVOKE.UsdGeomModelAPI_SWIGUpcast(cPtr), cMemoryOwn) {
     swigCPtr = new global::System.Runtime.InteropServices.HandleRef(this, cPtr);
   }
 
@@ -27,7 +25,7 @@ public class UsdGeomModelAPI : global::System.IDisposable {
     Dispose();
   }
 
-  public virtual void Dispose() {
+  public override void Dispose() {
     lock(this) {
       if (swigCPtr.Handle != global::System.IntPtr.Zero) {
         if (swigCMemOwn) {
@@ -37,6 +35,7 @@ public class UsdGeomModelAPI : global::System.IDisposable {
         swigCPtr = new global::System.Runtime.InteropServices.HandleRef(null, global::System.IntPtr.Zero);
       }
       global::System.GC.SuppressFinalize(this);
+      base.Dispose();
     }
   }
 
@@ -51,12 +50,12 @@ public class UsdGeomModelAPI : global::System.IDisposable {
     if (UsdCsPINVOKE.SWIGPendingException.Pending) throw UsdCsPINVOKE.SWIGPendingException.Retrieve();
   }
 
-  public static TfTokenVector GetSchemaAttributeNames(bool includeInherited) {
+  public new static TfTokenVector GetSchemaAttributeNames(bool includeInherited) {
     TfTokenVector ret = new TfTokenVector(UsdCsPINVOKE.UsdGeomModelAPI_GetSchemaAttributeNames__SWIG_0(includeInherited), false);
     return ret;
   }
 
-  public static TfTokenVector GetSchemaAttributeNames() {
+  public new static TfTokenVector GetSchemaAttributeNames() {
     TfTokenVector ret = new TfTokenVector(UsdCsPINVOKE.UsdGeomModelAPI_GetSchemaAttributeNames__SWIG_1(), false);
     return ret;
   }
@@ -344,15 +343,17 @@ public class UsdGeomModelAPI : global::System.IDisposable {
     return ret;
   }
 
-  public TfToken ComputeModelDrawMode() {
-    TfToken ret = new TfToken(UsdCsPINVOKE.UsdGeomModelAPI_ComputeModelDrawMode(swigCPtr), true);
+  public TfToken ComputeModelDrawMode(TfToken parentDrawMode) {
+    TfToken ret = new TfToken(UsdCsPINVOKE.UsdGeomModelAPI_ComputeModelDrawMode__SWIG_0(swigCPtr, TfToken.getCPtr(parentDrawMode)), true);
+    if (UsdCsPINVOKE.SWIGPendingException.Pending) throw UsdCsPINVOKE.SWIGPendingException.Retrieve();
     return ret;
   }
 
-  public static readonly bool IsConcrete = UsdCsPINVOKE.UsdGeomModelAPI_IsConcrete_get();
-  public static readonly bool IsTyped = UsdCsPINVOKE.UsdGeomModelAPI_IsTyped_get();
-  public static readonly bool IsApplied = UsdCsPINVOKE.UsdGeomModelAPI_IsApplied_get();
-  public static readonly bool IsMultipleApply = UsdCsPINVOKE.UsdGeomModelAPI_IsMultipleApply_get();
+  public TfToken ComputeModelDrawMode() {
+    TfToken ret = new TfToken(UsdCsPINVOKE.UsdGeomModelAPI_ComputeModelDrawMode__SWIG_1(swigCPtr), true);
+    return ret;
+  }
+
 }
 
 }

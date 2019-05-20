@@ -38,9 +38,11 @@ namespace USD.NET {
     /// <returns>A vector of PeropertyInfo for the given type.</returns>
     public static PropertyInfo[] GetCachedProperties(Type type) {
       PropertyInfo[] pi;
-      if (!propertyInfoCache.TryGetValue(type, out pi)) {
-        pi = type.GetProperties(GetPublicBindingFlags());
-        propertyInfoCache[type] = pi;
+      lock (propertyInfoCache) {
+        if (!propertyInfoCache.TryGetValue(type, out pi)) {
+          pi = type.GetProperties(GetPublicBindingFlags());
+          propertyInfoCache[type] = pi;
+        }
       }
       return pi;
     }
@@ -53,9 +55,11 @@ namespace USD.NET {
     /// <returns>A vector of FieldInfo for the given type.</returns>
     public static FieldInfo[] GetCachedFields(Type type) {
       FieldInfo[] fi;
-      if (!fieldInfoCache.TryGetValue(type, out fi)) {
-        fi = type.GetFields(GetPublicBindingFlags());
-        fieldInfoCache[type] = fi;
+      lock (fieldInfoCache) {
+        if (!fieldInfoCache.TryGetValue(type, out fi)) {
+          fi = type.GetFields(GetPublicBindingFlags());
+          fieldInfoCache[type] = fi;
+        }
       }
       return fi;
     }
@@ -75,6 +79,14 @@ namespace USD.NET {
     /// </summary>
     public static bool IsPrimvar(MemberInfo info) {
       return GetCacheEntry(info).isPrimvar;
+    }
+
+    /// <summary>
+    /// When this member info represents a Primvar (see IsPrimvar), the element size indicates the
+    /// number of array elements to be aggregated per element on the primitive surface.
+    /// </summary>
+    public static int GetPrimvarElementSize(MemberInfo info) {
+      return GetCacheEntry(info).primvarElementSize;
     }
 
     /// <summary>
@@ -98,6 +110,13 @@ namespace USD.NET {
     /// </summary>
     public static bool IsCustomData(MemberInfo info) {
       return GetCacheEntry(info).isCustomData;
+    }
+
+    /// <summary>
+    /// Returns true if the MemberInfo is intened to be serialized as metadata.
+    /// </summary>
+    public static bool IsMetadata(MemberInfo info) {
+      return GetCacheEntry(info).isMetadata;
     }
 
     /// <summary>
@@ -189,7 +208,9 @@ namespace USD.NET {
     /// </summary>
     private struct InfoEntry {
       public bool isPrimvar;
+      public int primvarElementSize;
       public bool isCustomData;
+      public bool isMetadata;
       public pxr.SdfVariability sdfVariability;
       public bool isNonSerialized;
       public string usdNamespace;
@@ -237,6 +258,7 @@ namespace USD.NET {
       var attrs2 = (VertexDataAttribute[])info.
                           GetCustomAttributes(typeof(VertexDataAttribute), true);
       cachedInfo.isPrimvar = attrs2.Length > 0;
+      cachedInfo.primvarElementSize = cachedInfo.isPrimvar ? attrs2[0].ElementSize : 1;
 
       //
       // IsFusedDisplayColor
@@ -260,6 +282,13 @@ namespace USD.NET {
       cachedInfo.isCustomData = attrs6.Length > 0;
 
       //
+      // IsMetaData
+      //
+      var attrs9 = (UsdMetadataAttribute[])info.
+                          GetCustomAttributes(typeof(UsdMetadataAttribute), true);
+      cachedInfo.isMetadata = attrs9.Length > 0;
+
+      //
       // IsNonSerialized
       //
       var attrs3 = (NonSerializedAttribute[])info.
@@ -276,7 +305,7 @@ namespace USD.NET {
       //
       // IsRelationship
       //
-      var attrs9 = (UsdRelationshipAttribute[])info.
+      var attrs11 = (UsdRelationshipAttribute[])info.
                           GetCustomAttributes(typeof(UsdRelationshipAttribute), true);
       cachedInfo.isRelationship = attrs9.Length > 0;
 

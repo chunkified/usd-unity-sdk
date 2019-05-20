@@ -50,7 +50,7 @@ namespace USD.NET {
 
   public class TypeBinder {
     static Dictionary<Type, UsdTypeBinding> bindings = new Dictionary<Type, UsdTypeBinding>();
-    
+
     // TODO: change these in Python generator to match .NET System types rather than C# types
     Dictionary<string, string> typeNameMapping = new Dictionary<string, string>();
     Dictionary<Type, Dictionary<pxr.TfToken, Enum>> enumMaps = new Dictionary<Type, Dictionary<pxr.TfToken, Enum>>();
@@ -72,7 +72,7 @@ namespace USD.NET {
 
     public bool GetReverseBinding(pxr.SdfValueTypeName key, out UsdTypeBinding binding) {
       // TODO: we could keep a reverse mapping, but waiting for deeper performance analysis first.
-      foreach(var kvp in bindings) {
+      foreach (var kvp in bindings) {
         if (kvp.Value.sdfTypeName == key) {
           binding = kvp.Value;
           return true;
@@ -96,22 +96,26 @@ namespace USD.NET {
 
 
     public bool GetBinding(Type key, out UsdTypeBinding binding) {
-      if (bindings.TryGetValue(key, out binding)) {
-        return true;
-      }
-      if (!key.IsEnum) {
-        return false;
-      }
+      lock (UsdIo.Bindings) {
+        if (bindings.TryGetValue(key, out binding)) {
+          return true;
+        }
+      
+        if (!key.IsEnum) {
+          return false;
+        }
 
-      //
-      // Enumerations.
-      // To reduce special cases of client code, all enums are special cased into a single
-      // converter. This converter is only selected if no specific type has been registered.
-      //
-      binding = BindEnum(key);
+        //
+        // Enumerations.
+        // To reduce special cases of client code, all enums are special cased into a single
+        // converter. This converter is only selected if no specific type has been registered.
+        //
+        binding = BindEnum(key);
 
-      // Memoize the binding so it doesn't get regenerated on every call.
-      bindings.Add(key, binding);
+        // Memoize the binding so it doesn't get regenerated on every call.
+      
+        bindings.Add(key, binding);
+      }
 
       return true;
     }
@@ -163,7 +167,7 @@ namespace USD.NET {
 
       var copyConverter = (ToCsCopyConverter)CodeGen.EmitToCs<ToCsCopyConverter>(valToVtArray, vtToCsArray);
       ToCsConverter toCs = (vtValue) => ToCsConvertHelper(vtValue, vtArrayType, copyConverter);
-      ToVtConverter toVt = 
+      ToVtConverter toVt =
           (ToVtConverter)CodeGen.EmitToVt<ToVtConverter>(csToVtArray, csType, vtArrayType);
 
       bindings[csType] = new UsdTypeBinding(toVt, toCs, sdfName);
@@ -192,7 +196,7 @@ namespace USD.NET {
           new Type[] { typeof(pxr.VtValue) });
 
       if (converter == null) {
-        throw new ArgumentException(string.Format("No VtValueTo{...} converter found for type {0}",
+        throw new ArgumentException(string.Format("No VtValueTo... converter found for type {0}",
           csType.ToString()));
       }
       bindings[csType] = new UsdTypeBinding(DefaultConversions.ToVtValue,
@@ -201,7 +205,7 @@ namespace USD.NET {
     }
 
     private UsdTypeBinding BindEnum(Type enumType) {
-      if(!enumType.IsEnum) {
+      if (!enumType.IsEnum) {
         throw new ArgumentException("BindEnum is only applicable to enum types");
       }
       return new UsdTypeBinding(
@@ -217,15 +221,17 @@ namespace USD.NET {
         pxr.UsdCs.VtValueToTfToken(vtValue, t);
         Enum enm;
         Dictionary<pxr.TfToken, Enum> enumMap;
-        if (!enumMaps.TryGetValue(enumType, out enumMap)) {
-          enumMap = new Dictionary<pxr.TfToken, Enum>();
-          enumMaps.Add(enumType, enumMap);
-        }
-        if (!enumMap.TryGetValue(t, out enm)) {
-          string s = t.ToString();
-          System.Diagnostics.Debug.Assert(!string.IsNullOrEmpty(s));
-          enm = (Enum)Enum.Parse(enumType, string.Concat(char.ToUpper(s[0]), s.Substring(1)));
-          enumMap.Add(t, enm);
+        lock (UsdIo.Bindings) {
+          if (!enumMaps.TryGetValue(enumType, out enumMap)) {
+            enumMap = new Dictionary<pxr.TfToken, Enum>();
+            enumMaps.Add(enumType, enumMap);
+          }
+          if (!enumMap.TryGetValue(t, out enm)) {
+            string s = t.ToString();
+            System.Diagnostics.Debug.Assert(!string.IsNullOrEmpty(s));
+            enm = (Enum)Enum.Parse(enumType, string.Concat(char.ToUpper(s[0]), s.Substring(1)));
+            enumMap.Add(t, enm);
+          }
         }
         return enm;
       } finally {
@@ -279,13 +285,27 @@ namespace USD.NET {
       //bindings[typeof(Guid)] = new UsdTypeBinding(GuidToVt_Bytes, GuidToCs_Bytes, SdfValueTypeNames.UCharArray);
       bindings[typeof(Guid)] = new UsdTypeBinding(GuidToVt_String, GuidToCs_String, SdfValueTypeNames.String);
 
+      /*
+       * These throw exceptions because there is no VtValueTo...ListOp, because those types are not declared in
+       * SdfValueTypeNames. Bug filed: https://github.com/PixarAnimationStudios/USD/issues/639
+       * 
+      BindNativeType(typeof(pxr.SdfInt64ListOp), SdfValueTypeNames.Int64);
+      BindNativeType(typeof(pxr.SdfUInt64ListOp), SdfValueTypeNames.UInt64);
+      BindNativeType(typeof(pxr.SdfIntListOp), SdfValueTypeNames.Int);
+      BindNativeType(typeof(pxr.SdfUIntListOp), SdfValueTypeNames.UInt);
+      BindNativeType(typeof(pxr.SdfStringListOp), SdfValueTypeNames.String);
+      BindNativeType(typeof(pxr.SdfTokenListOp), SdfValueTypeNames.Token);
+      BindNativeType(typeof(pxr.SdfReferenceListOp), SdfValueTypeNames.Asset);
+      BindNativeType(typeof(pxr.SdfPathListOp), SdfValueTypeNames.String);
+      */
+
       //
       // Bool
       //
       BindNativeType(typeof(bool), SdfValueTypeNames.Bool);
       BindNativeType(typeof(pxr.VtBoolArray), SdfValueTypeNames.BoolArray);
       BindArrayType<IntrinsicTypeConverter>(typeof(bool[]), typeof(pxr.VtBoolArray), SdfValueTypeNames.BoolArray);
-      BindArrayType<IntrinsicTypeConverter>(typeof(List<bool>), typeof(pxr.VtBoolArray), SdfValueTypeNames.BoolArray);
+      BindArrayType<IntrinsicTypeConverter>(typeof(List<bool>), typeof(pxr.VtBoolArray), SdfValueTypeNames.BoolArray, "List");
 
       //
       // UChar/byte
@@ -293,7 +313,7 @@ namespace USD.NET {
       BindNativeType(typeof(byte), SdfValueTypeNames.UChar);
       BindNativeType(typeof(pxr.VtUCharArray), SdfValueTypeNames.UCharArray);
       BindArrayType<IntrinsicTypeConverter>(typeof(byte[]), typeof(pxr.VtUCharArray), SdfValueTypeNames.UCharArray);
-      BindArrayType<IntrinsicTypeConverter>(typeof(List<byte>), typeof(pxr.VtUCharArray), SdfValueTypeNames.UCharArray);
+      BindArrayType<IntrinsicTypeConverter>(typeof(List<byte>), typeof(pxr.VtUCharArray), SdfValueTypeNames.UCharArray, "List");
 
       //
       // String
@@ -303,7 +323,15 @@ namespace USD.NET {
       BindNativeType(typeof(pxr.VtStringArray), SdfValueTypeNames.StringArray);
       BindNativeType(typeof(pxr.VtTokenArray), SdfValueTypeNames.TokenArray);
       BindArrayType<IntrinsicTypeConverter>(typeof(string[]), typeof(pxr.VtTokenArray), SdfValueTypeNames.TokenArray);
-      BindArrayType<IntrinsicTypeConverter>(typeof(List<string>), typeof(pxr.VtTokenArray), SdfValueTypeNames.TokenArray);
+      BindArrayType<IntrinsicTypeConverter>(typeof(List<string>), typeof(pxr.VtTokenArray), SdfValueTypeNames.TokenArray, "List");
+
+      //
+      // SdfAssetPath
+      //
+      //BindType(typeof(pxr.SdfAssetPath), new UsdTypeBinding((obj) => new pxr.VtValue((pxr.SdfAssetPath)obj), (obj) => (pxr.SdfAssetPath)obj, SdfValueTypeNames.Asset));
+      BindNativeType(typeof(pxr.SdfAssetPath), SdfValueTypeNames.Asset);
+      BindArrayType<IntrinsicTypeConverter>(typeof(pxr.SdfAssetPath[]), typeof(pxr.SdfAssetPathArray), SdfValueTypeNames.AssetArray);
+      BindArrayType<IntrinsicTypeConverter>(typeof(List<pxr.SdfAssetPath>), typeof(pxr.SdfAssetPathArray), SdfValueTypeNames.AssetArray, "List");
 
       //
       // Int
@@ -311,7 +339,7 @@ namespace USD.NET {
       BindNativeType(typeof(int), SdfValueTypeNames.Int);
       BindNativeType(typeof(pxr.VtIntArray), SdfValueTypeNames.IntArray);
       BindArrayType<IntrinsicTypeConverter>(typeof(int[]), typeof(pxr.VtIntArray), SdfValueTypeNames.IntArray);
-      BindArrayType<IntrinsicTypeConverter>(typeof(List<int>), typeof(pxr.VtIntArray), SdfValueTypeNames.IntArray);
+      BindArrayType<IntrinsicTypeConverter>(typeof(List<int>), typeof(pxr.VtIntArray), SdfValueTypeNames.IntArray, "List");
 
       //
       // UInt
@@ -319,7 +347,7 @@ namespace USD.NET {
       BindNativeType(typeof(uint), SdfValueTypeNames.UInt);
       BindNativeType(typeof(pxr.VtUIntArray), SdfValueTypeNames.UIntArray);
       BindArrayType<IntrinsicTypeConverter>(typeof(uint[]), typeof(pxr.VtUIntArray), SdfValueTypeNames.UIntArray);
-      BindArrayType<IntrinsicTypeConverter>(typeof(List<uint>), typeof(pxr.VtUIntArray), SdfValueTypeNames.UIntArray);
+      BindArrayType<IntrinsicTypeConverter>(typeof(List<uint>), typeof(pxr.VtUIntArray), SdfValueTypeNames.UIntArray, "List");
 
       //
       // Long
@@ -327,7 +355,7 @@ namespace USD.NET {
       BindNativeType(typeof(long), SdfValueTypeNames.Int64);
       BindNativeType(typeof(pxr.VtInt64Array), SdfValueTypeNames.Int64Array);
       BindArrayType<IntrinsicTypeConverter>(typeof(long[]), typeof(pxr.VtInt64Array), SdfValueTypeNames.Int64Array);
-      BindArrayType<IntrinsicTypeConverter>(typeof(List<long>), typeof(pxr.VtInt64Array), SdfValueTypeNames.Int64Array);
+      BindArrayType<IntrinsicTypeConverter>(typeof(List<long>), typeof(pxr.VtInt64Array), SdfValueTypeNames.Int64Array, "List");
 
       //
       // ULong
@@ -335,13 +363,16 @@ namespace USD.NET {
       BindNativeType(typeof(ulong), SdfValueTypeNames.UInt64);
       BindNativeType(typeof(pxr.VtUInt64Array), SdfValueTypeNames.UInt64Array);
       BindArrayType<IntrinsicTypeConverter>(typeof(ulong[]), typeof(pxr.VtUInt64Array), SdfValueTypeNames.UInt64Array);
-      BindArrayType<IntrinsicTypeConverter>(typeof(List<ulong>), typeof(pxr.VtUInt64Array), SdfValueTypeNames.UInt64Array);
+      BindArrayType<IntrinsicTypeConverter>(typeof(List<ulong>), typeof(pxr.VtUInt64Array), SdfValueTypeNames.UInt64Array, "List");
 
       //
       // Half
       //
       BindNativeType(typeof(pxr.GfHalf), SdfValueTypeNames.Half);
       BindNativeType(typeof(pxr.VtHalfArray), SdfValueTypeNames.HalfArray);
+      BindNativeType(typeof(pxr.VtVec2hArray), SdfValueTypeNames.Half2Array);
+      BindNativeType(typeof(pxr.VtVec3hArray), SdfValueTypeNames.Half3Array);
+      BindNativeType(typeof(pxr.VtVec4hArray), SdfValueTypeNames.Half4Array);
 
       //
       // Float
@@ -349,7 +380,7 @@ namespace USD.NET {
       BindNativeType(typeof(float), SdfValueTypeNames.Float);
       BindNativeType(typeof(pxr.VtFloatArray), SdfValueTypeNames.FloatArray);
       BindArrayType<IntrinsicTypeConverter>(typeof(float[]), typeof(pxr.VtFloatArray), SdfValueTypeNames.FloatArray);
-      BindArrayType<IntrinsicTypeConverter>(typeof(List<float>), typeof(pxr.VtFloatArray), SdfValueTypeNames.FloatArray);
+      BindArrayType<IntrinsicTypeConverter>(typeof(List<float>), typeof(pxr.VtFloatArray), SdfValueTypeNames.FloatArray, "List");
 
       //
       // Double
@@ -357,7 +388,7 @@ namespace USD.NET {
       BindNativeType(typeof(double), SdfValueTypeNames.Double);
       BindNativeType(typeof(pxr.VtDoubleArray), SdfValueTypeNames.DoubleArray);
       BindArrayType<IntrinsicTypeConverter>(typeof(double[]), typeof(pxr.VtDoubleArray), SdfValueTypeNames.DoubleArray);
-      BindArrayType<IntrinsicTypeConverter>(typeof(List<double>), typeof(pxr.VtDoubleArray), SdfValueTypeNames.DoubleArray);
+      BindArrayType<IntrinsicTypeConverter>(typeof(List<double>), typeof(pxr.VtDoubleArray), SdfValueTypeNames.DoubleArray, "List");
 
       //
       // Quaternion

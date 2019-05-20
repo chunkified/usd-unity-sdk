@@ -1,4 +1,4 @@
-﻿//
+//
 // Copyright 2016 Pixar
 //
 // Licensed under the Apache License, Version 2.0 (the "Apache License")
@@ -460,6 +460,10 @@ public:
                       "Provided type must derive UsdSchemaBase.");
         return _IsA(TfType::Find<T>(), /*validateSchemaType=*/false);
     };
+    
+    /// Return true if prim type is/inherits a Schema with TfType \p schemaType
+    USD_API
+    bool IsA(const TfType& schemaType) const;
 
     /// Return true if the UsdPrim has had an API schema represented by the C++ 
     /// class type <b>T</b> applied to it through the Apply() method provided 
@@ -504,12 +508,13 @@ public:
                       "Provided type must derive UsdAPISchemaBase.");
         static_assert(!std::is_same<UsdAPISchemaBase, T>::value,
                       "Provided type must not be UsdAPISchemaBase.");
-        static_assert(!T::IsTyped,
-                      "Provided schema type must not be typed.");
-        static_assert(T::IsApplied,
-                      "Provided schema type must be an applied API schema.");
+        static_assert(
+            (T::schemaType == UsdSchemaType::SingleApplyAPI
+            || T::schemaType == UsdSchemaType::MultipleApplyAPI),
+            "Provided schema type must be an applied API schema.");
 
-        if (!T::IsMultipleApply && !instanceName.IsEmpty()) {
+        if (T::schemaType != UsdSchemaType::MultipleApplyAPI
+            && !instanceName.IsEmpty()) {
             TF_CODING_ERROR("HasAPI: single application API schemas like %s do "
                 "not contain an application instanceName ( %s ).",
                 TfType::GetCanonicalTypeName(typeid(T)).c_str(),
@@ -520,6 +525,17 @@ public:
         return _HasAPI(TfType::Find<T>(), /*validateSchemaType=*/false, 
                        instanceName);
     }
+    
+    /// Return true if a prim has an API schema with TfType \p schemaType.
+    ///
+    /// \p instanceName, if non-empty is used to determine if a particular 
+    /// instance of a multiple-apply API schema (eg. UsdCollectionAPI) has been 
+    /// applied to the prim. A coding error is issued if a non-empty 
+    /// \p instanceName is passed in and <b>T</b> represents a single-apply API 
+    /// schema.
+    USD_API
+    bool HasAPI(const TfType& schemaType,
+                const TfToken& instanceName=TfToken()) const;
 
     // --------------------------------------------------------------------- //
     /// \name Prim Children

@@ -26,33 +26,46 @@
 %include "std_vector.i"
 %include "std_string.i"
 
+// for uint64_t
+%include "stdint.i"
+
 namespace std {
-	%template(StdStringVector) vector<std::string>;
+  %template(StdStringVector) vector<std::string>;
 }
 typedef std::vector<std::string> StdStringVector;
 
 namespace std {
-	%template(StdIntVector) vector<int>;
+  %template(StdIntVector) vector<int>;
 }
 typedef std::vector<int> StdIntVector;
 
 namespace std {
-	%template(StdFloatVector) vector<float>;
+  %template(StdUIntVector) vector<unsigned int>;
+}
+typedef std::vector<unsigned int> StdUIntVector;
+
+namespace std {
+  %template(StdUInt64Vector) vector<uint64_t>;
+}
+typedef std::vector<uint64_t> StdUInt64Vector;
+
+namespace std {
+  %template(StdFloatVector) vector<float>;
 }
 typedef std::vector<float> StdFloatVector;
 
 namespace std {
-	%template(StdFloatVectorVector) vector< vector<float> >;
+  %template(StdFloatVectorVector) vector< vector<float> >;
 }
 typedef vector< vector<float> > StdFloatVectorVector;
 
 namespace std {
-	%template(StdDoubleVector) vector<double>;
+  %template(StdDoubleVector) vector<double>;
 }
 typedef std::vector<double> StdDoubleVector;
 
 namespace std {
-	%template(StdDoubleVectorVector) vector< vector<double> >;
+  %template(StdDoubleVectorVector) vector< vector<double> >;
 }
 typedef std::vector< vector<double> > StdDoubleVectorVector;
 
@@ -84,7 +97,7 @@ typedef std::vector< vector<double> > StdDoubleVectorVector;
 %inline %{
 
 void SetEnv(std::string name, std::string value) {
-	ArchSetEnv(name, value, true);
+  ArchSetEnv(name, value, true);
 }
 
 VtValue GetFusedTransform(UsdPrim prim, UsdTimeCode time) {
@@ -102,6 +115,16 @@ VtValue GetFusedTransform(UsdPrim prim, UsdTimeCode time) {
   }
 
   return VtValue(mat);
+}
+
+bool WriteUsdZip(const std::string& usdzFilePath,
+                 const std::vector<std::string>& filesToArchive) {
+  auto writer = UsdZipFileWriter::CreateNew(usdzFilePath);
+  for (auto filePath : filesToArchive) {
+    // Empty string indicates failure.
+    writer.AddFile(filePath);
+  }
+  return writer.Save();
 }
 
 VtValue GetFusedDisplayColor(UsdPrim prim, UsdTimeCode time) {
@@ -126,7 +149,7 @@ VtValue GetFusedDisplayColor(UsdPrim prim, UsdTimeCode time) {
     return value;
   }
 
-  VtVec4fArray fused(n);
+  VtVec4fArray fused(n, GfVec4f(1, 1, 1, 1));
   for (size_t i = 0; i < n; i++) {
     if (i < rgb.size()) {
       fused[i][0] = rgb[i][0];

@@ -20,9 +20,12 @@
 
 %include "std_vector.i"
 namespace std {
-	%template(UsdGeomXformOpVector) vector<UsdGeomXformOp>;
+  %template(UsdGeomXformOpVector) vector<UsdGeomXformOp>;
 }
 typedef std::vector<UsdGeomXformOp> UsdGeomXformOpVector;
+
+%ignore UsdGeomXformOp::UsdGeomXformOp(const UsdAttribute &attr, bool isInverseOp, _ValidAttributeTagType);
+%ignore UsdGeomXformOp::UsdGeomXformOp(UsdAttributeQuery &&query, bool isInverseOp, _ValidAttributeTagType);
 
 #define TF_DECLARE_PUBLIC_TOKENS(UsdGeomXformOpTypes, USDGEOM_API, USDGEOM_XFORM_OP_TYPES)
 
